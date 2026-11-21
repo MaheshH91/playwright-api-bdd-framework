@@ -1,0 +1,28 @@
+{
+  "datasets": [
+    {
+      "name": "valid_credentials",
+      "payload": { "email": "eve.holt@reqres.in", "password": "cityslicka" },
+      "expected": {
+        "status": 200,
+        "fields": { "token": "__ANY__" }
+      }
+    },
+    {
+      "name": "missing_password",
+      "payload": { "email": "peter@klaven" },
+      "expected": {
+        "status": 400,
+        "fields": { "error": "__ANY__" }
+      }
+    },
+    {
+      "name": "missing_email",
+      "payload": { "password": "cityslicka" },
+      "expected": {
+        "status": 400,
+        "fields": { "error": "__ANY__" }
+      }
+    }
+  ]
+}

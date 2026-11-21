@@ -1,0 +1,12 @@
+{
+  "datasets": [
+    {
+      "name": "patch_job",
+      "payload": { "job": "software architect" },
+      "expected": {
+        "status": 200,
+        "fields": { "job": "software architect" }
+      }
+    }
+  ]
+}

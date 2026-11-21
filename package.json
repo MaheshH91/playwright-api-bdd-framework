@@ -1,0 +1,32 @@
+{
+  "name": "playwright-api-bdd-framework",
+  "version": "1.0.0",
+  "description": "Data-driven (DDF) BDD API testing framework built on Playwright's request API and Cucumber",
+  "scripts": {
+    "test": "node scripts/run.mjs",
+    "test:smoke": "node scripts/run.mjs --tags @smoke",
+    "test:regression": "node scripts/run.mjs --tags @regression",
+    "test:negative": "node scripts/run.mjs --tags @negative",
+    "test:parallel": "node scripts/run.mjs --parallel 3",
+    "report": "node scripts/generate-report.mjs",
+    "mock": "node mock-server/server.js",
+    "test:local": "node scripts/run-local.mjs"
+  },
+  "keywords": [
+    "playwright",
+    "cucumber",
+    "bdd",
+    "api-testing",
+    "ddf",
+    "data-driven"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@cucumber/cucumber": "^13.3.0",
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "multiple-cucumber-html-reporter": "^4.6.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

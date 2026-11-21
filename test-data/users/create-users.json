@@ -1,0 +1,28 @@
+{
+  "datasets": [
+    {
+      "name": "valid_user",
+      "payload": { "name": "morpheus", "job": "leader" },
+      "expected": {
+        "status": 201,
+        "fields": { "name": "morpheus", "job": "leader" }
+      }
+    },
+    {
+      "name": "minimal_user",
+      "payload": { "name": "neo" },
+      "expected": {
+        "status": 201,
+        "fields": { "name": "neo" }
+      }
+    },
+    {
+      "name": "boundary_long_name",
+      "payload": { "name": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz" },
+      "expected": {
+        "status": 201,
+        "fields": { "name": "__ANY__" }
+      }
+    }
+  ]
+}
