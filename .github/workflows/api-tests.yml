@@ -1,4 +1,4 @@
-name: API BDD Test Suite
+name: Playwright API BDD Tests
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
     branches: [main, master, develop]
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Target API environment'
+      API_ENV:
+        description: 'Target API environment (local uses the built-in mock server)'
         required: true
         default: 'local'
         type: choice
@@ -16,49 +16,70 @@ on:
           - local
           - qa
           - prod
-      tags:
-        description: 'Cucumber tag expression (e.g. @smoke, @regression, or leave empty for all)'
+      TAGS:
+        description: 'Cucumber tag expression (e.g., @smoke, @regression, @users and not @negative)'
         required: false
         default: ''
         type: string
-      workers:
+      PARALLEL_WORKERS:
         description: 'Number of parallel Cucumber workers'
         required: false
         default: '3'
         type: string
+      BASE_URL_OVERRIDE:
+        description: 'Optional custom BASE_URL override (leave blank to use envConfig default)'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: playwright-api-bdd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  api-tests:
-    name: Run API BDD Tests (${{ github.event.inputs.environment || 'local' }})
+  api-bdd-tests:
+    name: Run API BDD Tests (${{ inputs.API_ENV || 'local' }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    env:
+      CI: 'true'
+      API_ENV: ${{ inputs.API_ENV || 'local' }}
+      TIMEOUT_MS: '10000'
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.21.0'
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          node -v && npm -v
+          npm ci
 
-      - name: TypeScript type check
+      - name: Type check
         run: npm run typecheck
 
-      - name: Execute API BDD tests
+      - name: Run API BDD Tests
         env:
-          API_ENV: ${{ github.event.inputs.environment || 'local' }}
-          API_KEY: ${{ secrets.API_KEY }}
-          BASE_URL: ${{ vars.BASE_URL }}
-          TIMEOUT_MS: ${{ vars.TIMEOUT_MS || '10000' }}
+          API_KEY: ${{ env.API_ENV != 'local' && secrets.REQRES_API_KEY || '' }}
+          BASE_URL: ${{ inputs.BASE_URL_OVERRIDE }}
         run: |
-          WORKERS="${{ github.event.inputs.workers || '3' }}"
-          TAGS="${{ github.event.inputs.tags }}"
+          set -euo pipefail
+
+          WORKERS="${{ inputs.PARALLEL_WORKERS || '3' }}"
+          if ! [[ "$WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid PARALLEL_WORKERS value '${WORKERS}'. Must be a positive integer." >&2
+            exit 1
+          fi
+
           EXTRA_ARGS="--parallel ${WORKERS}"
+          TAGS="${{ inputs.TAGS }}"
           if [ -n "$TAGS" ]; then
             EXTRA_ARGS="${EXTRA_ARGS} --tags '${TAGS}'"
           fi
@@ -69,18 +90,45 @@ jobs:
             eval "node scripts/run.mjs ${EXTRA_ARGS}"
           fi
 
-      - name: Publish JUnit Test Summary
+      - name: Publish JUnit XML Report
         uses: mikepenz/action-junit-report@v5
         if: always()
         with:
           report_paths: 'reports/junit-report.xml'
-          check_name: 'Cucumber API Test Results'
+          check_name: 'Playwright API BDD Test Results'
           fail_on_failure: false
 
-      - name: Upload HTML & JSON Test Reports
+      - name: Archive test reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: api-test-reports-${{ github.run_number }}
-          path: reports/
+          name: reports-${{ github.run_number }}
+          path: reports/**/*
+          if-no-files-found: ignore
           retention-days: 14
+
+      - name: Send email report
+        uses: dawidd6/action-send-mail@v3
+        if: always()
+        continue-on-error: true
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          secure: true
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "[${{ job.status }}] ${{ github.repository }} #${{ github.run_number }} (${{ env.API_ENV }})"
+          to: holkarmahesh1@gmail.com
+          from: ${{ secrets.SMTP_FROM || secrets.SMTP_USERNAME }}
+          content_type: text/html
+          html_body: |
+            <h3>Playwright API BDD Test Execution Summary</h3>
+            <p><b>Repository:</b> ${{ github.repository }}</p>
+            <p><b>Run:</b> #${{ github.run_number }}</p>
+            <p><b>Status:</b> ${{ job.status }}</p>
+            <p><b>Environment:</b> ${{ env.API_ENV }}</p>
+            <p><b>Tags:</b> ${{ inputs.TAGS || 'All' }}</p>
+            <p><b>Run URL:</b> <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}</a></p>
+          attachments: |
+            reports/html/index.html
+            reports/junit-report.xml
