@@ -71,7 +71,7 @@ pipeline {
 
                     def extraArgs = "--parallel ${workers}"
                     if (params.TAGS?.trim()) {
-                        def escapedTags = params.TAGS.trim().replace("'", "'\\\\''")
+                        def escapedTags = params.TAGS.trim().replace("'", "'\\''")
                         extraArgs += " --tags '${escapedTags}'"
                     }
 
@@ -118,6 +118,30 @@ pipeline {
             ])
 
             archiveArtifacts artifacts: 'reports/**/*', allowEmptyArchive: true
+
+            script {
+                try {
+                    emailext(
+                        to: 'holkarmahesh1@gmail.com',
+                        subject: "[${currentBuild.currentResult}] ${env.JOB_NAME} #${env.BUILD_NUMBER} (${params.API_ENV})",
+                        mimeType: 'text/html',
+                        body: """
+                            <h3>Playwright API BDD Test Execution Summary</h3>
+                            <p><b>Job:</b> ${env.JOB_NAME}</p>
+                            <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
+                            <p><b>Status:</b> ${currentBuild.currentResult}</p>
+                            <p><b>Environment:</b> ${params.API_ENV}</p>
+                            <p><b>Tags:</b> ${params.TAGS ?: 'All'}</p>
+                            <p><b>Build URL:</b> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+                            <p><b>HTML Report:</b> <a href="${env.BUILD_URL}Cucumber_20API_20HTML_20Report/">View in Jenkins</a></p>
+                        """,
+                        attachmentsPattern: 'reports/html/index.html,reports/junit-report.xml',
+                        attachLog: currentBuild.currentResult != 'SUCCESS'
+                    )
+                } catch (Exception e) {
+                    echo "Email notification skipped or failed: ${e.message}"
+                }
+            }
         }
         failure {
             echo 'API BDD Test execution failed. Inspect the Cucumber API HTML Report or JUnit results for request/response details.'
