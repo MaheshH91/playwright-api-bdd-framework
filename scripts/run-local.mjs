@@ -2,7 +2,7 @@
  * Runs the suite against the local mock server (scripts/../mock-server):
  *  1. starts mock-server/server.js
  *  2. waits for it to accept connections
- *  3. runs cucumber with API_ENV=local and BASE_URL pointing at the mock
+ *  3. runs cucumber with API_ENV=local and BASE_URL pointing at the mock (forwarding extra CLI args)
  *  4. stops the server, propagates cucumber's exit code
  */
 import { spawn, spawnSync } from 'node:child_process';
@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PORT || 3000);
 const baseUrl = `http://localhost:${port}`;
+const extraArgs = process.argv.slice(2);
 
 const server = spawn(process.execPath, [path.join(projectRoot, 'mock-server', 'server.js')], {
   env: { ...process.env, PORT: String(port) },
@@ -41,7 +42,7 @@ if (!ready) {
 
 console.log(`[test:local] Mock server ready on ${baseUrl}`);
 
-const result = spawnSync(process.execPath, [path.join(projectRoot, 'scripts', 'run.mjs')], {
+const result = spawnSync(process.execPath, [path.join(projectRoot, 'scripts', 'run.mjs'), ...extraArgs], {
   stdio: 'inherit',
   cwd: projectRoot,
   env: { ...process.env, API_ENV: 'local', BASE_URL: baseUrl }

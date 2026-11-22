@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Data-driven (DDF) BDD API testing framework built on Playwright's request API and Cucumber",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "test": "node scripts/run.mjs",
     "test:smoke": "node scripts/run.mjs --tags @smoke",
     "test:regression": "node scripts/run.mjs --tags @regression",
@@ -10,7 +11,8 @@
     "test:parallel": "node scripts/run.mjs --parallel 3",
     "report": "node scripts/generate-report.mjs",
     "mock": "node mock-server/server.js",
-    "test:local": "node scripts/run-local.mjs"
+    "test:local": "node scripts/run-local.mjs",
+    "test:ci": "node scripts/run-local.mjs --parallel 3"
   },
   "keywords": [
     "playwright",

@@ -2,11 +2,13 @@
 
 API testing framework combining **Playwright's request API** (HTTP client, no browser needed), **Cucumber BDD** (Gherkin features), and **data-driven testing (DDF)** via external JSON/CSV datasets with expected results.
 
-Targets the [reqres.in](https://reqres.in) demo API out of the box — swap `BASE_URL` to point at any API.
+Targets the [reqres.in](https://reqres.in) demo API out of the box — swap `BASE_URL` to point at any API, or run self-contained against the built-in local mock server in CI/CD.
 
 ## Project structure
 
 ```
+├── .github/workflows/
+│   └── api-tests.yml          GitHub Actions CI/CD workflow (manual dispatch + PR/push)
 ├── features/                  Gherkin feature files
 │   ├── users.feature          Lookup, listing, Scenario Outline (DDF), negative
 │   ├── user-crud.feature      POST/PUT/PATCH/DELETE driven by datasets
@@ -25,43 +27,92 @@ Targets the [reqres.in](https://reqres.in) demo API out of the box — swap `BAS
 │   └── auth/login.json
 ├── mock-server/               Dependency-free local mock of the reqres API (test:local)
 ├── schemas/                   Lightweight JSON schemas for response validation
-├── scripts/                   run.mjs (runner), generate-report.mjs (HTML report)
-└── reports/html/index.html    Generated HTML report
+├── scripts/                   run.mjs (runner), run-local.mjs, generate-report.mjs (HTML report)
+├── reports/                   Generated HTML, JSON, and JUnit XML reports
+├── Jenkinsfile                Declarative Jenkins pipeline with parameters & report publishing
+├── Dockerfile                 Lightweight Node 22 Alpine image for containerized CI agents
+└── cucumber.js                Cucumber configuration (summary, JSON, and JUnit formatters)
 ```
 
 ## Setup
 
 ```bash
-npm install
+npm ci
 ```
 
-No browser download required — the framework only uses Playwright's HTTP client.
+No browser download required — the framework only uses Playwright's HTTP client (`APIRequestContext`) on Node.js 22+.
 
 ## Running tests
 
 ```bash
-npm test                    # full suite against reqres.in (always regenerates the HTML report)
+npm test                    # full suite against reqres.in (always regenerates reports)
 npm run test:local          # full suite against the built-in local mock server (deterministic, no quota)
+npm run test:ci             # local mock server + 3 parallel workers (default CI command)
 npm run test:smoke          # @smoke scenarios only
 npm run test:regression     # @regression scenarios only
 npm run test:negative       # @negative scenarios only
 npm run test:parallel       # 3 parallel workers
+npm run typecheck           # TypeScript strict type check (tsc --noEmit)
 npm run mock                # start the local mock server standalone (port 3000)
 npm run report              # regenerate HTML report from last JSON run
 ```
 
-Extra cucumber args pass through, e.g. `node scripts/run.mjs --tags "@users and not @negative"`.
+Extra Cucumber CLI args pass through to both `run.mjs` and `run-local.mjs`, e.g.:
+```bash
+node scripts/run-local.mjs --tags "@users and not @negative" --parallel 2
+```
 
 ### Environment / configuration
 
-| Env var      | Default             | Purpose                          |
-|--------------|---------------------|----------------------------------|
+| Env var      | Default             | Purpose                               |
+|--------------|---------------------|---------------------------------------|
 | `API_ENV`    | `qa`                | Environment key (`qa`/`prod`/`local`) |
-| `BASE_URL`   | per environment map | Override target API base URL     |
-| `API_KEY`    | `reqres-free-v1`    | Sent as `x-api-key` header       |
-| `TIMEOUT_MS` | `10000`             | Request timeout                  |
+| `BASE_URL`   | per environment map | Override target API base URL          |
+| `API_KEY`    | `reqres-free-v1`    | Sent as `x-api-key` header            |
+| `TIMEOUT_MS` | `10000`             | Request timeout in milliseconds       |
 
 Example: `API_ENV=qa npm test`
+
+## CI/CD Integration
+
+This repository is ready out of the box for both **GitHub Actions** and **Jenkins**. Both pipelines default to `API_ENV=local` (using `mock-server/server.js`) so CI builds remain fast, deterministic, and immune to external API rate limits (`429`), while allowing on-demand execution against `qa` or `prod`.
+
+### 1. GitHub Actions (`.github/workflows/api-tests.yml`)
+
+- **Triggers**:
+  - Automatic on `push` and `pull_request` to `main`, `master`, or `develop` (runs against `local` mock server with 3 parallel workers).
+  - Manual via **Actions → API BDD Test Suite → Run workflow**, allowing you to select `environment` (`local` / `qa` / `prod`), `tags` (e.g., `@smoke`), and `workers`.
+- **Pipeline Steps**:
+  1. Checks out code and sets up **Node.js 22** with npm caching.
+  2. Installs dependencies (`npm ci`) and runs `npm run typecheck`.
+  3. Executes Cucumber tests and generates HTML, JSON, and JUnit XML reports.
+  4. Publishes inline PR/commit test annotations via `mikepenz/action-junit-report` (`reports/junit-report.xml`).
+  5. Uploads the full `reports/` directory as a workflow artifact (`api-test-reports-<run_number>`).
+- **Optional Repository Configuration**:
+  - **Secret**: `API_KEY` — custom API key when targeting live `qa`/`prod` environments.
+  - **Variables**: `BASE_URL`, `TIMEOUT_MS` — optional overrides.
+
+### 2. Jenkins (`Jenkinsfile`)
+
+- **Pipeline Parameters** (available via *Build with Parameters*):
+  - `API_ENV`: `local` (default), `qa`, or `prod`.
+  - `TAGS`: Cucumber tag expression (e.g., `@smoke`, `@regression`, `@users and not @negative`).
+  - `PARALLEL_WORKERS`: Number of parallel workers (default `3`).
+  - `BASE_URL_OVERRIDE`: Optional URL override.
+- **Jenkins Prerequisites & Plugins**:
+  1. **NodeJS Plugin**: Configure a Node.js 22 installation named `NodeJS-22` under *Manage Jenkins → Tools* (or adjust the `tools` block in `Jenkinsfile` / run inside the provided `Dockerfile`).
+  2. **JUnit Plugin**: Automatically parses `reports/junit-report.xml` for build test trends.
+  3. **HTML Publisher Plugin**: Publishes `reports/html/index.html` directly on the Jenkins job dashboard as **Cucumber API HTML Report**.
+  4. **Credentials (Optional)**: Add a *Secret text* credential with ID `reqres-api-key` in *Manage Jenkins → Credentials* (or remove the `API_KEY = credentials(...)` line if not using live external keys).
+
+### 3. Docker Execution (Optional)
+
+Run the entire suite inside a self-contained Node 22 Alpine container without installing Node locally on CI agents:
+
+```bash
+docker build -t playwright-api-bdd .
+docker run --rm -v "$(pwd)/reports:/app/reports" playwright-api-bdd
+```
 
 ## Data-driven testing (DDF)
 
@@ -117,7 +168,10 @@ are attached to failed scenarios automatically for debugging.
 
 ## Reports
 
-After every run: **[reports/html/index.html](reports/html/index.html)** — standalone HTML report (multiple-cucumber-html-reporter) with scenario details, durations, failure attachments, and run metadata.
+After every run, three report formats are produced in `reports/`:
+- **`reports/html/index.html`** — Standalone HTML report (`multiple-cucumber-html-reporter`) with scenario details, durations, failure attachments, and run metadata.
+- **`reports/cucumber-report.json`** — Raw Cucumber JSON output.
+- **`reports/junit-report.xml`** — JUnit XML report consumed by Jenkins and GitHub Actions test result publishers.
 
 ## Extending
 
@@ -127,6 +181,8 @@ After every run: **[reports/html/index.html](reports/html/index.html)** — stan
 
 ## Notes
 
-- TypeScript is pinned to 5.4.x because `ts-node` does not support TypeScript 7 (the native compiler).
-- Formatters: cucumber's built-in `summary` + `json` — `@cucumber/pretty-formatter` 4.x has no default export and is incompatible with cucumber v13's formatter loader.
-- The reqres.in keyless demo is rate-limited; a `429` failure usually means the shared quota was hit, not a test bug. Register a free key and pass `API_KEY=<your key>` for more headroom.
+- **Node.js Engine**: `@cucumber/cucumber` v13 and `multiple-cucumber-html-reporter` v4 require **Node.js 22+**.
+- **TypeScript**: Pinned to `5.4.x` because `ts-node` does not support TypeScript 7.
+- **Formatters**: Uses Cucumber's built-in `summary`, `json`, and `junit` formatters (`@cucumber/pretty-formatter` 4.x is incompatible with Cucumber v13's formatter loader).
+- **Rate Limits**: The `reqres.in` keyless demo is rate-limited; a `429` failure usually means the shared quota was hit, not a test bug. Use `npm run test:local` for deterministic CI runs or register a free key and pass `API_KEY=<your key>`.
+
