@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        nodejs 'NodeJS-22'
+        nodejs 'NodeJS 24.21.0'
     }
 
     parameters {
@@ -32,8 +32,6 @@ pipeline {
         CI = 'true'
         API_ENV = "${params.API_ENV}"
         TIMEOUT_MS = '10000'
-        // Optional Jenkins credential for external APIs (fallback handled in envConfig.ts)
-        API_KEY = credentials('reqres-api-key')
     }
 
     options {
@@ -66,9 +64,15 @@ pipeline {
         stage('Run API BDD Tests') {
             steps {
                 script {
-                    def extraArgs = "--parallel ${params.PARALLEL_WORKERS}"
+                    def workers = params.PARALLEL_WORKERS?.trim() ?: '3'
+                    if (!workers.matches('\\d+') || workers.toInteger() < 1) {
+                        error("Invalid PARALLEL_WORKERS value '${params.PARALLEL_WORKERS}'. Must be a positive integer.")
+                    }
+
+                    def extraArgs = "--parallel ${workers}"
                     if (params.TAGS?.trim()) {
-                        extraArgs += " --tags '${params.TAGS.trim()}'"
+                        def escapedTags = params.TAGS.trim().replace("'", "'\\\\''")
+                        extraArgs += " --tags '${escapedTags}'"
                     }
 
                     def envVars = []
@@ -76,12 +80,23 @@ pipeline {
                         envVars.add("BASE_URL=${params.BASE_URL_OVERRIDE.trim()}")
                     }
 
-                    withEnv(envVars) {
-                        if (params.API_ENV == 'local') {
-                            sh "node scripts/run-local.mjs ${extraArgs}"
-                        } else {
-                            sh "node scripts/run.mjs ${extraArgs}"
+                    def runTests = {
+                        withEnv(envVars) {
+                            if (params.API_ENV == 'local') {
+                                sh "node scripts/run-local.mjs ${extraArgs}"
+                            } else {
+                                sh "node scripts/run.mjs ${extraArgs}"
+                            }
                         }
+                    }
+
+                    // Only bind reqres-api-key when not running local (and once created in Jenkins)
+                    if (params.API_ENV != 'local') {
+                        withCredentials([string(credentialsId: 'reqres-api-key', variable: 'API_KEY')]) {
+                            runTests()
+                        }
+                    } else {
+                        runTests()
                     }
                 }
             }
@@ -90,10 +105,8 @@ pipeline {
 
     post {
         always {
-            // Publish JUnit XML results in Jenkins Test Results trend view
             junit allowEmptyResults: true, testResults: 'reports/junit-report.xml'
 
-            // Publish standalone HTML report (requires HTML Publisher plugin)
             publishHTML(target: [
                 allowMissing: true,
                 alwaysLinkToLastBuild: true,
@@ -104,11 +117,10 @@ pipeline {
                 reportTitles: 'Playwright API BDD Test Report'
             ])
 
-            // Archive raw JSON, JUnit XML, and HTML artifacts
             archiveArtifacts artifacts: 'reports/**/*', allowEmptyArchive: true
         }
         failure {
-            echo "API BDD Test execution failed. Inspect the Cucumber API HTML Report or JUnit results for request/response details."
+            echo 'API BDD Test execution failed. Inspect the Cucumber API HTML Report or JUnit results for request/response details.'
         }
     }
 }
