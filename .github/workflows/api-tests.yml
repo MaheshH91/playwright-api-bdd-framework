@@ -95,7 +95,9 @@ jobs:
 
       - name: Send test report email
         uses: dawidd6/action-send-mail@v3
-        if: always() && secrets.MAIL_SERVER != ''
+        if: always() && env.MAIL_SERVER != ''
+        env:
+          MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
         with:
           server_address: ${{ secrets.MAIL_SERVER }}
           server_port: ${{ secrets.MAIL_PORT }}
