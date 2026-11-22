@@ -29,8 +29,9 @@ on:
 
 jobs:
   api-tests:
-    name: Run API BDD Tests (${{ github.event.inputs.environment || 'local' }})
+    name: Run API BDD Tests (${{ inputs.environment || 'local' }})
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'local' }}
     timeout-minutes: 15
 
     steps:
@@ -51,22 +52,29 @@ jobs:
 
       - name: Execute API BDD tests
         env:
-          API_ENV: ${{ github.event.inputs.environment || 'local' }}
+          API_ENV: ${{ inputs.environment || 'local' }}
           API_KEY: ${{ secrets.API_KEY }}
           BASE_URL: ${{ vars.BASE_URL }}
           TIMEOUT_MS: ${{ vars.TIMEOUT_MS || '10000' }}
+          TAGS: ${{ inputs.tags }}
+          WORKERS: ${{ inputs.workers || '3' }}
         run: |
-          WORKERS="${{ github.event.inputs.workers || '3' }}"
-          TAGS="${{ github.event.inputs.tags }}"
-          EXTRA_ARGS="--parallel ${WORKERS}"
+          set -euo pipefail
+
+          if ! [[ "$WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid workers count: '$WORKERS'. Must be a positive integer." >&2
+            exit 1
+          fi
+
+          ARGS=(--parallel "$WORKERS")
           if [ -n "$TAGS" ]; then
-            EXTRA_ARGS="${EXTRA_ARGS} --tags '${TAGS}'"
+            ARGS+=(--tags "$TAGS")
           fi
 
           if [ "$API_ENV" = "local" ]; then
-            eval "node scripts/run-local.mjs ${EXTRA_ARGS}"
+            node scripts/run-local.mjs "${ARGS[@]}"
           else
-            eval "node scripts/run.mjs ${EXTRA_ARGS}"
+            node scripts/run.mjs "${ARGS[@]}"
           fi
 
       - name: Publish JUnit Test Summary
@@ -101,7 +109,7 @@ jobs:
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
-            Environment: ${{ github.event.inputs.environment || 'local' }}
+            Environment: ${{ inputs.environment || 'local' }}
             Status: ${{ job.status }}
             Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             Artifact: reports-${{ github.run_number }}
